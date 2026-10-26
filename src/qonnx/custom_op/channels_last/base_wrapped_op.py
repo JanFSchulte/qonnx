@@ -33,7 +33,7 @@ from onnx import TensorProto, helper
 from onnx.helper import make_opsetid
 
 from qonnx.custom_op.base import CustomOp
-from qonnx.util.basic import get_preferred_onnx_opset, qonnx_make_model
+from qonnx.util.basic import qonnx_make_model
 
 
 def to_channels_last_args(ndim):
@@ -89,7 +89,7 @@ class ChannelsLastWrappedOp(CustomOp):
         node = self.onnx_node
 
         # Get opset
-        opset_version = get_preferred_onnx_opset()
+        opset_version = self.onnx_opset_version
         opset_imports = [make_opsetid("", opset_version)]
         onnx_kwargs = {"opset_imports": opset_imports}
 
