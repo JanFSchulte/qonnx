@@ -176,7 +176,7 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
                 execution_context = sanitize_quant_values(model, node.input, execution_context)
             if node.domain in opset_imports:
                 opset_version = opset_imports[node.domain]
-           elif node.domain == "qonnx.custom_op.channels_last" and ("" in opset_imports or "ai.onnx" in opset_imports):
+            elif node.domain == "qonnx.custom_op.channels_last" and ("" in opset_imports or "ai.onnx" in opset_imports):
                 # channels-last ops wrap standard ONNX ops, so their domain version follows the
                 # standard ONNX opset (see InsertChannelsLastDomainsAndTrafos)
                 opset_version = opset_imports.get("", opset_imports.get("ai.onnx"))
