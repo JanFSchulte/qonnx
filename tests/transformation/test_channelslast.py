@@ -30,6 +30,9 @@ import pytest
 
 import numpy as np
 
+import onnxruntime as rt
+from onnx import TensorProto, helper
+
 import qonnx.core.onnx_exec as oxe
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.channels_last.base_wrapped_op import to_channels_last_args
@@ -48,6 +51,7 @@ from qonnx.transformation.make_input_chanlast import MakeInputChannelsLast
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.util.test import download_model, get_golden_in_and_output, test_model_details
 from qonnx.util.to_channels_last import to_channels_last
+from qonnx.util.basic import qonnx_make_model
 
 model_details_chanlast = {
     "FINN-CNV_W2A2": {
@@ -286,3 +290,38 @@ def test_channelslast_conversion_step_by_step(test_model):
     assert model.check_all_tensor_shapes_specified(), "All tensor shapes should be specified."
 
     model.save(qonnx_all_trafos)
+
+
+@pytest.mark.parametrize("ceil_mode", [0, 1])
+@pytest.mark.parametrize("import_chanlast_domain", [True, False])
+def test_channelslast_wrapped_op_uses_standard_onnx_opset(ceil_mode, import_chanlast_domain):
+    """Wrapped channels-last ops must be executed with an ai.onnx opset, not with the
+    version of the qonnx.custom_op.channels_last domain (which is 1). With ai.onnx opset 1,
+    onnxruntime rejects e.g. the ceil_mode attribute of MaxPool (added in opset 10)."""
+    ifm_dim, ch = 5, 2
+    ofm_dim = 3 if ceil_mode else 2
+    pool_attrs = dict(kernel_shape=[2, 2], strides=[2, 2], pads=[0, 0, 0, 0], ceil_mode=ceil_mode)
+
+    # channels-last model containing only a wrapped MaxPool
+    inp = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ch])
+    outp = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ch])
+    node = helper.make_node("MaxPool", ["x"], ["y"], domain="qonnx.custom_op.channels_last", **pool_attrs)
+    opset_imports = [helper.make_opsetid("", 13)]
+    if import_chanlast_domain:
+        opset_imports.append(helper.make_opsetid("qonnx.custom_op.channels_last", 1))
+    graph = helper.make_graph([node], "chanlast_maxpool", [inp], [outp])
+    model = ModelWrapper(qonnx_make_model(graph, opset_imports=opset_imports))
+
+    # reference: standard channels-first MaxPool executed directly with onnxruntime
+    ref_inp = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, ch, ifm_dim, ifm_dim])
+    ref_outp = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, ch, ofm_dim, ofm_dim])
+    ref_node = helper.make_node("MaxPool", ["x"], ["y"], **pool_attrs)
+    ref_graph = helper.make_graph([ref_node], "ref_maxpool", [ref_inp], [ref_outp])
+    ref_model = qonnx_make_model(ref_graph, opset_imports=[helper.make_opsetid("", 13)])
+    sess = rt.InferenceSession(ref_model.SerializeToString())
+
+    x = np.random.rand(1, ifm_dim, ifm_dim, ch).astype(np.float32)
+    y = oxe.execute_onnx(model, {"x": x})["y"]
+    y_ref = sess.run(None, {"x": x.transpose(0, 3, 1, 2)})[0].transpose(0, 2, 3, 1)
+    assert y.shape == (1, ofm_dim, ofm_dim, ch)
+    assert np.array_equal(y, y_ref)
