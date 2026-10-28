@@ -52,7 +52,6 @@ from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantIn
 from qonnx.util.test import download_model, get_golden_in_and_output, test_model_details
 from qonnx.util.to_channels_last import to_channels_last
 from qonnx.util.basic import qonnx_make_model
-from qonnx.util.test import download_model, get_golden_in_and_output, test_model_details
 
 model_details_chanlast = {
     "FINN-CNV_W2A2": {
